@@ -10,6 +10,9 @@ use App\Http\Controllers\Api\AnnouncementController;
 // Public routes
 Route::post('login', [AuthController::class, 'login']);
 
+// Telegram Webhook (Public - no auth)
+Route::post('telegram/webhook/{schoolId}', [App\Http\Controllers\TelegramWebhookController::class, 'handle']);
+
 // Protected routes
 Route::middleware(['auth:sanctum', 'track.ai'])->group(function () {
     
