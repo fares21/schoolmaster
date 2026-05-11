@@ -1,4 +1,3 @@
-// app/Models/User.php
 <?php
 
 namespace App\Models;
@@ -7,58 +6,120 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Builder;
+use Spatie\Permission\Traits\HasRoles;
+use Illuminate\Support\Str;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes, HasRoles;
 
     protected $table = 'users';
 
-    protected $fillable = [
-        'school_id',
-        'email',
-        'password_hash',
-        'role',
-        'full_name',
-        'telegram_chat_id',
-        'is_active',
-        'last_login_at',
-    ];
+    protected $guard_name = 'api';
 
-    protected $hidden = [
-        'password_hash',
+    protected $fillable = [
+        'uuid',
+        'school_id',
+        'national_id',
+        'email',
+        'phone',
+        'username',
+        'password',
+        'first_name',
+        'last_name',
+        'middle_name',
+        'gender',
+        'birth_date',
+        'profile_photo',
+        'status',
+        'email_verified_at',
+        'phone_verified_at',
+        'last_login_at',
+        'last_login_ip',
+        'two_factor_secret',
+        'two_factor_recovery_codes',
+        'two_factor_confirmed_at',
+        'two_factor_method',
+        'telegram_chat_id',
+        'telegram_username',
+        'preferences',
+        'metadata',
         'remember_token',
     ];
 
-    protected $casts = [
-        'is_active' => 'boolean',
-        'last_login_at' => 'datetime',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
+    protected $hidden = [
+        'password',
+        'remember_token',
+        'two_factor_secret',
+        'two_factor_recovery_codes',
+        'deleted_at',
     ];
 
-    // Relationships
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'phone_verified_at' => 'datetime',
+        'last_login_at' => 'datetime',
+        'birth_date' => 'date',
+        'preferences' => 'array',
+        'metadata' => 'array',
+        'two_factor_confirmed_at' => 'datetime',
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
+        'deleted_at' => 'datetime',
+    ];
+
+    protected $appends = [
+        'full_name',
+        'role',
+        'is_active',
+        'avatar_url',
+    ];
+
+    // ========== Global Scopes for Tenant Isolation ==========
+    
+    protected static function booted()
+    {
+        static::addGlobalScope('tenant', function (Builder $builder) {
+            if (auth()->check() && !auth()->user()->isSuperAdmin()) {
+                $builder->where('school_id', auth()->user()->school_id);
+            }
+        });
+        
+        static::creating(function ($user) {
+            if (empty($user->uuid)) {
+                $user->uuid = (string) Str::uuid();
+            }
+            
+            if (empty($user->password)) {
+                $user->password = bcrypt(Str::random(16));
+            }
+        });
+    }
+
+    // ========== Relationships ==========
+    
     public function school(): BelongsTo
     {
         return $this->belongsTo(School::class);
     }
 
-    public function teacher(): HasOne
+    public function student(): BelongsTo
     {
-        return $this->hasOne(Teacher::class);
+        return $this->belongsTo(Student::class, 'id', 'user_id');
     }
 
-    public function student(): HasOne
+    public function teacher(): BelongsTo
     {
-        return $this->hasOne(Student::class, 'parent_id');
+        return $this->belongsTo(Teacher::class, 'id', 'user_id');
     }
 
-    public function parentStudents(): HasMany
+    public function parent(): BelongsTo
     {
-        return $this->hasMany(ParentStudent::class, 'parent_id');
+        return $this->belongsTo(Parents::class, 'id', 'user_id');
     }
 
     public function recordedAttendances(): HasMany
@@ -66,72 +127,141 @@ class User extends Authenticatable
         return $this->hasMany(Attendance::class, 'recorded_by');
     }
 
-    public function createdAnnouncements(): HasMany
-    {
-        return $this->hasMany(Announcement::class, 'created_by');
-    }
-
-    public function aiUsages(): HasMany
-    {
-        return $this->hasMany(AIUsage::class);
-    }
-
     public function auditLogs(): HasMany
     {
         return $this->hasMany(AuditLog::class);
     }
 
-    // Role Check Methods
+    // ========== Accessors ==========
+    
+    public function getFullNameAttribute(): string
+    {
+        return "{$this->first_name} {$this->last_name}";
+    }
+
+    public function getRoleAttribute(): string
+    {
+        return $this->roles->first()?->name ?? 'user';
+    }
+
+    public function getIsActiveAttribute(): bool
+    {
+        return $this->status === 'active';
+    }
+
+    public function getAvatarUrlAttribute(): string
+    {
+        if ($this->profile_photo) {
+            return asset('storage/' . $this->profile_photo);
+        }
+        
+        return 'https://ui-avatars.com/api/?name=' . urlencode($this->full_name) . '&background=random';
+    }
+
+    // ========== Scopes ==========
+    
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'active');
+    }
+
+    public function scopeBySchool($query, int $schoolId)
+    {
+        return $query->where('school_id', $schoolId);
+    }
+
+    public function scopeByRole($query, string $role)
+    {
+        return $query->role($role);
+    }
+
+    // ========== Methods ==========
+    
     public function isSuperAdmin(): bool
     {
-        return $this->role === 'super_admin';
+        return $this->hasRole('super_admin');
     }
 
     public function isSchoolAdmin(): bool
     {
-        return $this->role === 'school_admin';
+        return $this->hasRole('school_admin');
     }
 
     public function isTeacher(): bool
     {
-        return $this->role === 'teacher';
+        return $this->hasRole('teacher');
     }
 
     public function isStudent(): bool
     {
-        return $this->role === 'student';
+        return $this->hasRole('student');
     }
 
     public function isParent(): bool
     {
-        return $this->role === 'parent';
+        return $this->hasRole('parent');
     }
 
-    // Permission Methods
-    public function canAccessAI(): bool
+    public function canAccessSchool(int $schoolId): bool
     {
-        // Strict policy: Only school_admin can access AI
-        return $this->isSchoolAdmin() && $this->is_active;
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+        
+        return $this->school_id === $schoolId;
     }
 
-    public function canManageUsers(): bool
+    public function recordLogin(): void
     {
-        return $this->isSuperAdmin() || ($this->isSchoolAdmin() && $this->is_active);
+        $this->update([
+            'last_login_at' => now(),
+            'last_login_ip' => request()->ip(),
+        ]);
     }
 
-    public function canManageAttendance(): bool
+    public function hasTwoFactorEnabled(): bool
     {
-        return $this->isSuperAdmin() || $this->isSchoolAdmin() || ($this->isTeacher() && $this->is_active);
+        return !is_null($this->two_factor_confirmed_at);
     }
 
-    // Helper Methods
-    public function getFullNameAttribute(): string
+    public function enableTwoFactor(string $method): void
     {
-        return $this->full_name;
+        $this->update([
+            'two_factor_method' => $method,
+            'two_factor_confirmed_at' => now(),
+        ]);
     }
 
-    public function getAuthPassword()
+    public function disableTwoFactor(): void
     {
-        return $this->password_hash;
+        $this->update([
+            'two_factor_secret' => null,
+            'two_factor_recovery_codes' => null,
+            'two_factor_method' => null,
+            'two_factor_confirmed_at' => null,
+        ]);
+    }
+
+    public function getPermissions(): array
+    {
+        return $this->getAllPermissions()->pluck('name')->toArray();
+    }
+
+    // ========== Authentication ==========
+    
+    public function routeNotificationForTelegram(): ?string
+    {
+        return $this->telegram_chat_id;
+    }
+
+    public function generateNewApiToken(): string
+    {
+        $token = $this->createToken('auth-token', ['*'])->plainTextToken;
+        return $token;
+    }
+
+    public function revokeAllTokens(): void
+    {
+        $this->tokens()->delete();
     }
 }
