@@ -1,4 +1,3 @@
-// routes/api.php
 <?php
 
 use Illuminate\Support\Facades\Route;
@@ -6,12 +5,13 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\AIController;
 use App\Http\Controllers\Api\AnnouncementController;
+use App\Http\Controllers\TelegramWebhookController;
 
 // Public routes
 Route::post('login', [AuthController::class, 'login']);
 
 // Telegram Webhook (Public - no auth)
-Route::post('telegram/webhook/{schoolId}', [App\Http\Controllers\TelegramWebhookController::class, 'handle']);
+Route::post('telegram/webhook/{schoolId}', [TelegramWebhookController::class, 'handle']);
 
 // Protected routes
 Route::middleware(['auth:sanctum', 'track.ai'])->group(function () {
