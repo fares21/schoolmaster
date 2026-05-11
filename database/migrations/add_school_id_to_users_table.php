@@ -1,0 +1,33 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up()
+    {
+        Schema::table('users', function (Blueprint $table) {
+            $table->unsignedBigInteger('school_id')->nullable()->after('id');
+            $table->uuid('uuid')->nullable()->unique()->after('school_id');
+            $table->softDeletes();
+            
+            $table->foreign('school_id')
+                  ->references('id')
+                  ->on('schools')
+                  ->onDelete('cascade');
+                  
+            $table->index('school_id');
+        });
+    }
+    
+    public function down()
+    {
+        Schema::table('users', function (Blueprint $table) {
+            $table->dropForeign(['school_id']);
+            $table->dropColumn(['school_id', 'uuid']);
+            $table->dropSoftDeletes();
+        });
+    }
+};
